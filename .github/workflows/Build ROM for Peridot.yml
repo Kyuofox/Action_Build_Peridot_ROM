@@ -1,0 +1,53 @@
+name: Build ROM for Peridot
+on:
+  workflow_dispatch:
+    inputs:
+      VENDOR_URL:
+        description: "底包下载地址"
+        required: true
+        default: 'https://bkt-sgp-miui-ota-update-alisgp.oss-ap-southeast-1.aliyuncs.com/OS1.0.16.0.UNPCNXM/miui_PERIDOT_OS1.0.16.0.UNPCNXM_a11ee61712_14.0.zip'
+      DROP_MIEXT:
+        description: '移除MI_EXT'
+        required: true
+        type: boolean
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 最大化构建环境
+        uses: easimon/maximize-build-space@master
+        with:
+          swap-size-mb: 8192
+          root-reserve-mb: 8192
+          temp-reserve-mb: 2048
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+      - name: 检出仓库文件
+        uses: actions/checkout@main
+      - name: 准备所需环境
+        run: |
+          sudo timedatectl set-timezone Asia/Shanghai
+          sudo apt-get install python3 aria2 p7zip-full zstd
+      - name: 构建 ROM
+        run: |
+          sudo bash "$GITHUB_WORKSPACE"/make.sh ${{ github.event.inputs.VENDOR_URL }} ${{ github.event.inputs.DROP_MIEXT }} $GITHUB_ENV $GITHUB_WORKSPACE
+      - name: 处理 ROM
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE"/GithubRelease
+          cd "$GITHUB_WORKSPACE"/GithubRelease
+          sudo split -b 1536M -d "$GITHUB_WORKSPACE"/zip/${{ env.rom_name }} ${{ env.rom_name }}
+          cd "$GITHUB_WORKSPACE"
+          touch file.log
+          echo -e "底包版本: ${{ env.vendor_os_version }}\n底包安全补丁版本: ${{ env.vendor_security_patch }}\n底包基线版本: ${{ env.vendor_base_line }}" > file.log
+      - name: 上传到 Github Release
+        uses: ncipollo/release-action@main
+        with:
+          artifacts: ${{ github.workspace }}/GithubRelease/*
+          name: ${{ env.vendor_os_version }}
+          tag: ${{ env.vendor_os_version }}
+          bodyFile: "${{ github.workspace }}/file.log"
+          allowUpdates: true
+          artifactErrorsFailBuild: true
+          token: ${{ secrets.GITHUB_TOKEN }}
