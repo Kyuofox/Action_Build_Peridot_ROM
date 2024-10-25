@@ -1,9 +1,8 @@
 #!/bin/bash
 
 VENDOR_URL="$1"       # 底包下载地址
-DROP_MIEXT="$2"       # 移除MI_EXT
-GITHUB_ENV="$3"       # 输出环境变量
-GITHUB_WORKSPACE="$4" # 工作目录
+GITHUB_ENV="$2"       # 输出环境变量
+GITHUB_WORKSPACE="$3" # 工作目录
 
 Red='\033[1;31m'    # 粗体红色
 Yellow='\033[1;33m' # 粗体黄色
@@ -151,11 +150,9 @@ elif [ -d vendor_ramdisk ]; then
   fi
 fi
 ## 移除 mi_ext 和 pangu (fstab)
-if [[ "${DROP_MIEXT}" == "true" ]]; then
-  echo -e "\e[1;33m- 移除 mi_ext 和 pangu (fstab) \e[0m"
-  sudo sed -i "/mi_ext/d" "$GITHUB_WORKSPACE"/"${device}"_files/fstab.qcom
-  sudo sed -i "/overlay/d" "$GITHUB_WORKSPACE"/"${device}"_files/fstab.qcom
-fi
+echo -e "\e[1;33m- 移除 mi_ext 和 pangu (fstab) \e[0m"
+sudo sed -i "/mi_ext/d" "$GITHUB_WORKSPACE"/"${device}"_files/fstab.qcom
+sudo sed -i "/overlay/d" "$GITHUB_WORKSPACE"/"${device}"_files/fstab.qcom
 # 替换 ramdisk 的 fstab
 echo -e "${Red}- 替换 ramdisk 的 fstab"
 sudo cp -f "$GITHUB_WORKSPACE"/"${device}"_files/fstab.qcom "$GITHUB_WORKSPACE"/vendor_boot/ramdisk/first_stage_ramdisk/fstab.qcom
@@ -289,23 +286,18 @@ done
 cd "$GITHUB_WORKSPACE"/apk/services/
 sudo $apktool_jar b -q -f -c "$GITHUB_WORKSPACE"/apk/services/ -o services.jar
 sudo cp -rf "$GITHUB_WORKSPACE"/apk/services/services.jar "$GITHUB_WORKSPACE"/images/system/system/framework/services.jar
-# 移除 mi_ext 修改
-if [[ "${DROP_MIEXT}" == "true" ]]; then
-  ## 移除 mi_ext 和 pangu (product)
-  pangu="$GITHUB_WORKSPACE"/images/product/pangu/system
-  sudo find "$pangu" -type d | sed "s|$pangu|/system/system|g" | sed 's/$/ u:object_r:system_file:s0/' >>"$GITHUB_WORKSPACE"/images/config/system_file_contexts
-  sudo find "$pangu" -type f | sed 's/\./\\./g' | sed "s|$pangu|/system/system|g" | sed 's/$/ u:object_r:system_file:s0/' >>"$GITHUB_WORKSPACE"/images/config/system_file_contexts
-  sudo cp -rf "$GITHUB_WORKSPACE"/images/product/pangu/system/* "$GITHUB_WORKSPACE"/images/system/system/
-  sudo rm -rf "$GITHUB_WORKSPACE"/images/product/pangu/system/*
-fi
-# 补全移除mi_ext后所缺失的叠加层
-if [[ "${DROP_MIEXT}" == "true" ]]; then
-  echo -e "${Red}- 补全 HyperOS 叠加层"
-  find "$GITHUB_WORKSPACE"/images/mi_ext/product/overlay/ -type f -name "*.apk" | while read -r overlays; do
-    echo -e "${Yellow}- 找到文件: $overlays"
-    cp -rf "$overlays" "$GITHUB_WORKSPACE"/images/product/overlay/
-  done
-fi
+# 移除 mi_ext 和 pangu (product)
+pangu="$GITHUB_WORKSPACE"/images/product/pangu/system
+sudo find "$pangu" -type d | sed "s|$pangu|/system/system|g" | sed 's/$/ u:object_r:system_file:s0/' >>"$GITHUB_WORKSPACE"/images/config/system_file_contexts
+sudo find "$pangu" -type f | sed 's/\./\\./g' | sed "s|$pangu|/system/system|g" | sed 's/$/ u:object_r:system_file:s0/' >>"$GITHUB_WORKSPACE"/images/config/system_file_contexts
+sudo cp -rf "$GITHUB_WORKSPACE"/images/product/pangu/system/* "$GITHUB_WORKSPACE"/images/system/system/
+sudo rm -rf "$GITHUB_WORKSPACE"/images/product/pangu/system/*
+# 补全移除 mi_ext 后所缺失的叠加层
+echo -e "${Red}- 补全 HyperOS 叠加层"
+find "$GITHUB_WORKSPACE"/images/mi_ext/product/overlay/ -type f -name "*.apk" | while read -r overlays; do
+  echo -e "${Yellow}- 找到文件: $overlays"
+  cp -rf "$overlays" "$GITHUB_WORKSPACE"/images/product/overlay/
+done
 # 系统更新获取更新路径对齐
 echo -e "${Red}- 系统更新获取更新路径对齐"
 for mod_device_build in $(sudo find "$GITHUB_WORKSPACE"/images/ -type f -name 'build.prop' 2>/dev/null | xargs grep -rl 'ro.product.mod_device=' | sed 's/^\.\///' | sort); do
@@ -315,21 +307,14 @@ for mod_device_build in $(sudo find "$GITHUB_WORKSPACE"/images/ -type f -name 'b
     sudo sed -i 's/ro.product.mod_device=[^*]*/ro.product.mod_device=peridot_pre/' "$mod_device_build"
   fi
 done
-# 为HyperOS添加版本信息
-if [[ "${DROP_MIEXT}" == "true" ]]; then
-  echo -e "${Red}- 补全 HyperOS 版本信息"
-  product_build_prop=$(sudo find "$GITHUB_WORKSPACE"/images/product/ -type f -name "build.prop")
-  mi_ext_build_prop=$(sudo find "$GITHUB_WORKSPACE"/images/mi_ext/ -type f -name "build.prop")
-  search_keywords=("mod_device" "iec" "ro.miui" "mi.os")
-  while IFS= read -r line; do
-    for keyword in "${search_keywords[@]}"; do
-      if [[ $line == *"$keyword"* ]]; then
-        echo -e "${Yellow}- 找到指定字符: $line"
-        sudo sed -i "$(sudo sed -n "/ro.product.build.version.sdk/=" "$product_build_prop")a $line" "$product_build_prop"
-      fi
-    done
-  done < "$mi_ext_build_prop"
-fi
+# 为 HyperOS 添加版本信息
+echo -e "${Red}- 补全 HyperOS 版本信息"
+product_build_prop=$(sudo find "$GITHUB_WORKSPACE"/images/product/ -type f -name "build.prop")
+mi_ext_build_prop=$(sudo find "$GITHUB_WORKSPACE"/images/mi_ext/ -type f -name "build.prop")
+while IFS= read -r line; do
+  echo -e "${Yellow}- 找到指定字符: $line"
+  sudo sed -i "$(sudo sed -n "/ro.product.build.version.sdk/=" "$product_build_prop")a $line" "$product_build_prop"
+done < "$mi_ext_build_prop"
 # 替换更改文件/删除多余文件
 echo -e "${Red}- 替换更改文件/删除多余文件"
 sudo rm -rf "$GITHUB_WORKSPACE"/"${device}"_files
